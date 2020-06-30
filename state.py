@@ -45,7 +45,8 @@ class Vertex():
 		self.t = t
 		self.prev = None
 		self.next = None
-		self.pushing = None
+		self.contact_left = None
+		self.contact_right = None
 
 class State1D():
 	def __init__(self, space, time):
@@ -53,7 +54,7 @@ class State1D():
 		self.drawable = []
 		# a "shift" is a reference to an edge that is nonsensical now;
 		# it should be fixed and the weirdness propogated to the next edge
-		self.next_cycle_updates = set()
+		self.next_cycle_updates = [set() for _ in range(time)]
 		self.age = 0
 
 		start = Vertex(Pos(0, 0), START, 0)
@@ -72,6 +73,12 @@ class State1D():
 		def push(v, dir, strength, pusher):
 			# vertex v is feeling a push
 			assert dir == -1 or dir == 1
+			if dir == -1:
+				v.contact_right = pusher
+				pusher.contact_left = v
+			elif dir == 1:
+				v.contact_left = pusher
+				pusher.contact_right = v
 
 			# does v resist?
 			if v.prev.strength > strength:
@@ -109,17 +116,70 @@ class State1D():
 	#	?
 	# 
 
+
+	# TODO: I don't think I need this method at all!
+	# difficult physics case: everybody is pushing for the middle spot:
+	# __97532468_
+	# _9753_2468_
+	# we see left will win and take the spot, while right stays put
+	# but now imagine a new player with strength 1 appears in that spot going right
+	# we have to reevaluate everyone!
+	# Solution: maybe give edges an effective strength, where that 3 has E.S. of 9?
+	# effective strength should get reset when pusher does
 	def place_vertex(v):
 		# looks at previous move and places this vertex accordingly
 		# assumes there is no entry for this vertex in the grid
 		# will push things out of the way to make room if possible
 		# does not touch v.next
 
-		v.pushing = None
+		v.contact_left = None
+		v.contact_right = None
 
 		edge = v.prev
 		goal_spot = edge.prev.pos.copy(edge.dir, edge.dtime)
 		n = self.grid[goal_spot.i]
+
+		if n is not None and n.prev.warp is not None:
+			print('BAD WARP to', goal_spot)
+			# TODO: remove it from grid
+
+		if n is None:
+			# check for crossing
+			if crossing:
+				pass
+			else:
+				# plain sailing
+				v.pos = goal_spot
+		else:
+			# somebody is in our spot
+			push_dir = dir if dir != 0 else -1 * n.prev.move
+			if push(n, push_dir, edge.strength, v):
+				# we get our way by force
+				assert self.grid[goal_spot.i] is None
+				v.pos = goal_spot
+			else:
+				# we couldn't resist, but are we pushed against something?
+				new_push_dir = push_dir * -1
+				new_goal_spot = goal_spot.copy(new_push_dir, 0)
+				new_n = self.grid[new_goal_spot.i]
+				if new_n is None:
+					# not pushed against anything
+					v.pos = new_goal_spot
+				else:
+					# more pushing!
+					# we are pushing against new_n, but with the strength of n
+					if push(new_n, new_push_dir, n.prev.strength, v):
+						# our original neighbor wins!
+						v.pos = new_goal_spot
+					else:
+						# all things considered, our neighbor should not have won the push
+						# we should push it back with our new_neighbor's strength
+						WAIT!
+
+
+
+
+
 		if edge.dir == 0:
 
 			if n is None:
@@ -216,16 +276,51 @@ class State1D():
 			s[0][0] = edge.next.next
 		'''
 
+		def mark_next_update(e):
+			TODO e.prev or e.next? think about warps
+			us = next_cycle_updates[e.prev.pos.time]
+			if v in us:
+				return
+			else:
+				next_cycle_updates[e.prev.pos.time].add(v)
+				for v in 
+
+		def apply_move(e):
+			# Assuming this vertex is in place and hasn't tried moving,
+			# try moving
+			# Update grid and abc
+			v = e.next
+			goal_pos = v.dir.copy(e.dir, 0)
+			n = self.grid[goal_pos.i]
+			if n is None:
+				e.move = e.dir
+
+
+			push()
+
+
 		update = self.next_cycle_updates
-		self.next_cycle_updates = set()
-		for e in update:
-			self.grid[e.next.pos.i] = None
-		for e in update:
-			place(e.next)
-			next_edge = e.next.next
-			next_edge.move = next_edge.next.pos.space - next_edge.prev.pos.space
-			if next_edge.move != next_edge.dir:
-				next_cycle_updates.add(next_edge)
+		self.next_cycle_updates = [set() for _ in self.next_cycle_updates]
+		for time, u in reversed(enumerate(update)):
+			# remove old version of placed vertex
+
+			for e in u:
+				self.grid[e.next.pos.i] = None
+
+			# place vertices with no movement
+			for e in u:
+				self.grid[e.prev.pos.copy(0, 1)]
+				e.move = 0
+
+			# vertices try to move and can push each other
+			# TODO sort by strength high to low I think
+			for e in u:
+				place(e.next)
+				next_edge = e.next.next
+				TODO next few lines
+				next_edge.move = next_edge.next.pos.space - next_edge.prev.pos.space
+				if next_edge.move != next_edge.dir:
+					mark_next_update(next_edge)
 		
 		# player
 		p = self.player
